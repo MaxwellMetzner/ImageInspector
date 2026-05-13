@@ -236,10 +236,20 @@
       .ii-save-menu button {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
+        justify-content: center;
+        gap: 0;
         border-top-right-radius: 0;
         border-bottom-right-radius: 0;
-        min-width: 76px;
+        min-width: 60px;
+        padding-inline: 10px;
+        border-color: rgba(110, 231, 183, 0.56);
+        background: rgba(5, 150, 105, 0.9);
+        color: #ecfdf5;
+      }
+
+      .ii-save-menu button:hover {
+        border-color: rgba(167, 243, 208, 0.82);
+        background: rgba(4, 120, 87, 0.98);
       }
 
       .ii-save-menu select {
@@ -262,39 +272,6 @@
       .ii-save-menu select:hover {
         border-color: rgba(110, 231, 183, 0.72);
         background-color: rgba(6, 78, 59, 0.94);
-      }
-
-      .ii-save-icon {
-        position: relative;
-        width: 12px;
-        height: 12px;
-        border: 1.5px solid currentColor;
-        border-top: 0;
-        border-radius: 2px;
-        flex: 0 0 auto;
-      }
-
-      .ii-save-icon::before {
-        content: "";
-        position: absolute;
-        left: 50%;
-        top: -5px;
-        width: 1.5px;
-        height: 8px;
-        background: currentColor;
-        transform: translateX(-50%);
-      }
-
-      .ii-save-icon::after {
-        content: "";
-        position: absolute;
-        left: 50%;
-        top: 1px;
-        width: 6px;
-        height: 6px;
-        border-right: 1.5px solid currentColor;
-        border-bottom: 1.5px solid currentColor;
-        transform: translateX(-50%) rotate(45deg);
       }
 
       .ii-panel {
@@ -1788,9 +1765,9 @@
     if (id) {
       button.dataset.id = id;
     }
-    const label = el("span", "", "PNG");
+    const label = el("span", "", "SAVE");
     label.dataset.part = "save-label";
-    button.append(saveIcon(), label);
+    button.append(label);
 
     const select = document.createElement("select");
     select.dataset.part = "save-choice";
@@ -1822,17 +1799,10 @@
       return;
     }
 
-    const select = wrapper.querySelector('select[data-part="save-choice"]');
     const label = wrapper.querySelector('[data-part="save-label"]');
-    if (select && label) {
-      label.textContent = select.value === "source" ? "Source" : select.value.toUpperCase();
+    if (label) {
+      label.textContent = "SAVE";
     }
-  }
-
-  function saveIcon() {
-    const icon = el("span", "ii-save-icon");
-    icon.setAttribute("aria-hidden", "true");
-    return icon;
   }
 
   function option(value, text, selected = false) {
