@@ -8,6 +8,7 @@
   const ROOT_ID = "image-inspector-root";
   const MAX_SCAN_ITEMS = 80;
   const MAX_BACKGROUND_SCAN_NODES = 2500;
+  const MAX_HIGHER_QUALITY_PROBES = 6;
   const DIRECT_IMAGE_RE = /\.(avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i;
   const MIME_BY_EXT = new Map([
     ["avif", "image/avif"],
@@ -701,7 +702,7 @@
     pinSelection(selection);
   }
 
-  function onShadowClick(event) {
+  async function onShadowClick(event) {
     const button = event.target.closest("button[data-action]");
     if (!button) {
       return;
@@ -730,14 +731,21 @@
     }
 
     if (action === "download-selected-format" && state.pinnedSelection) {
-      const candidate = getSelectedCandidate(state.pinnedSelection);
-      convertSelection(state.pinnedSelection, selectedDetailFormat(button), candidate.url);
+      const selection = state.pinnedSelection;
+      const format = selectedDetailFormat(button);
+      await discoverHigherQuality(selection);
+      ensureDetailSelection(selection, getSortedCandidates(selection));
+      const candidate = getSelectedCandidate(selection);
+      convertSelection(selection, format, candidate.url);
       return;
     }
 
     if (action === "download-selected-url" && state.pinnedSelection) {
-      const candidate = getSelectedCandidate(state.pinnedSelection);
-      downloadUrl(candidate.url, state.pinnedSelection);
+      const selection = state.pinnedSelection;
+      await discoverHigherQuality(selection);
+      ensureDetailSelection(selection, getSortedCandidates(selection));
+      const candidate = getSelectedCandidate(selection);
+      downloadUrl(candidate.url, selection);
       return;
     }
 
@@ -1096,6 +1104,7 @@
   }
 
   function renderSelectionPanel(selection) {
+    discoverHigherQuality(selection);
     parts.panelTitle.textContent = "Selected image";
     parts.panelBody.replaceChildren();
 
@@ -1129,6 +1138,7 @@
 
     if (candidates.length) {
       const candidateSection = section("Sources");
+      candidateSection.append(el("div", "ii-candidate-subtitle", selection.discoveryStatus));
       const list = el("div", "ii-source-list");
       for (const candidate of candidates) {
         const item = el("label", "ii-source-option");
@@ -1364,13 +1374,23 @@
     const task = new Promise((resolve) => {
       const img = new Image();
       img.decoding = "async";
+      const finish = (dimensions) => {
+        clearTimeout(timer);
+        img.onload = null;
+        img.onerror = null;
+        resolve(dimensions);
+      };
+      const timer = setTimeout(() => {
+        finish(null);
+        img.src = "";
+      }, 10000);
       img.onload = () => {
-        resolve({
+        finish({
           width: img.naturalWidth || null,
           height: img.naturalHeight || null
         });
       };
-      img.onerror = () => resolve(null);
+      img.onerror = () => finish(null);
       img.src = url;
     });
 
@@ -1379,6 +1399,7 @@
   }
 
   async function downloadSelection(selection) {
+    await discoverHigherQuality(selection);
     const candidate = getBestCandidate(selection);
     await downloadUrl(candidate.url, selection);
   }
@@ -1407,6 +1428,9 @@
   }
 
   async function convertSelection(selection, format, sourceUrl = "") {
+    if (!sourceUrl) {
+      await discoverHigherQuality(selection);
+    }
     const candidate = sourceUrl ? { url: sourceUrl } : getBestCandidate(selection);
     try {
       showToast(`Converting to ${format.toUpperCase()}...`);
@@ -1584,8 +1608,121 @@
     return Array.from(byUrl.values());
   }
 
+  function higherQualityUrls(url) {
+    const parsed = new URL(url);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return [];
+    }
+
+    // Signed URLs generally cannot be rewritten without invalidating the signature.
+    if ([...parsed.searchParams.keys()].some((key) => /^(s|sig|signature|token|auth|expires|policy|key-pair-id|x-amz-.+|x-goog-.+)$/i.test(key))) {
+      return [];
+    }
+
+    const urls = [];
+    const unresized = new URL(parsed.href);
+    const transformKeys = /^(w|h|width|height|dpr|fit|crop|rect|resize|size|q|quality)$/i;
+    for (const key of [...unresized.searchParams.keys()]) {
+      if (transformKeys.test(key)) {
+        unresized.searchParams.delete(key);
+      }
+    }
+    if (unresized.href !== parsed.href) {
+      urls.push({ url: unresized.href, label: "Without resize/quality parameters" });
+    }
+
+    if (parsed.hostname === "pbs.twimg.com" && parsed.pathname.startsWith("/media/") && parsed.searchParams.has("name")) {
+      const original = new URL(parsed.href);
+      original.searchParams.set("name", "orig");
+      urls.push({ url: original.href, label: "Original media size" });
+    }
+
+    const originalPath = parsed.pathname.replace(/-(?:\d{2,5}x\d{2,5}|scaled|thumb|thumbnail|small)(?=\.(?:avif|gif|jpe?g|png|webp)$)/i, "");
+    if (originalPath !== parsed.pathname) {
+      const original = new URL(unresized.href);
+      original.pathname = originalPath;
+      urls.push({ url: original.href, label: "Without thumbnail suffix" });
+    }
+    return urls;
+  }
+
+  function discoverHigherQuality(selection) {
+    if (selection.discoveryTask) {
+      return selection.discoveryTask;
+    }
+
+    selection.discoveryStatus = "Checking for larger images...";
+    selection.discoveryTask = (async () => {
+      const known = new Set(selection.candidates.map((candidate) => candidate.url));
+      const guesses = [];
+      const addGuess = (candidate) => {
+        if (!known.has(candidate.url) && guesses.length < MAX_HIGHER_QUALITY_PROBES) {
+          known.add(candidate.url);
+          guesses.push(candidate);
+        }
+      };
+
+      for (const attribute of ["data-original", "data-full", "data-full-src", "data-large", "data-zoom-image"]) {
+        const url = resolveUrl(selection.element.getAttribute(attribute));
+        if (url && /^https?:/i.test(url)) {
+          addGuess({ url, label: attribute });
+        }
+      }
+      for (const candidate of selection.candidates) {
+        for (const guess of higherQualityUrls(candidate.url)) {
+          addGuess(guess);
+        }
+      }
+
+      if (!guesses.length) {
+        selection.discoveryStatus = "No additional original-image hints found.";
+        return;
+      }
+
+      const baseline = await measureImage(selection.url);
+      if (!baseline || !baseline.width || !baseline.height) {
+        selection.discoveryStatus = "Could not verify the current image size; keeping discovered sources.";
+        return;
+      }
+
+      const results = await Promise.all(guesses.map(async (guess) => ({
+        ...guess,
+        dimensions: await measureImage(guess.url)
+      })));
+      let added = 0;
+      let failed = 0;
+      for (const result of results) {
+        const dimensions = result.dimensions;
+        if (!dimensions || !dimensions.width || !dimensions.height) {
+          failed += 1;
+          continue;
+        }
+        if (dimensions.width * dimensions.height <= baseline.width * baseline.height) {
+          continue;
+        }
+        addCandidate(selection.candidates, result.url, {
+          source: "verified larger image",
+          label: result.label,
+          naturalWidth: dimensions.width,
+          naturalHeight: dimensions.height
+        });
+        added += 1;
+      }
+      selection.discoveryStatus = `${added} larger source(s) found.${failed ? ` ${failed} probe(s) failed or timed out.` : ""}`;
+    })().catch((error) => {
+      selection.discoveryStatus = `Larger-image search failed: ${error.message}`;
+      console.warn("Image Inspector larger-image search failed:", error);
+    }).finally(() => {
+      rerenderIfVisible(selection);
+    });
+    return selection.discoveryTask;
+  }
+
   function getSortedCandidates(selection) {
-    return [...selection.candidates].sort((a, b) => candidateScore(b) - candidateScore(a));
+    return [...selection.candidates].sort((a, b) =>
+      (b.naturalWidth || 0) * (b.naturalHeight || 0) - (a.naturalWidth || 0) * (a.naturalHeight || 0) ||
+      candidateScore(b) - candidateScore(a)
+    );
   }
 
   function getBestCandidate(selection) {
@@ -1600,7 +1737,7 @@
 
   function ensureDetailSelection(selection, candidates) {
     const options = candidates.length ? candidates : [getBestCandidate(selection)];
-    if (!selection.selectedCandidateUrl || !options.some((candidate) => candidate.url === selection.selectedCandidateUrl)) {
+    if (!selection.sourceChosenManually || !options.some((candidate) => candidate.url === selection.selectedCandidateUrl)) {
       selection.selectedCandidateUrl = options[0].url;
     }
 
@@ -1611,6 +1748,7 @@
 
   function updateSelectedSource(input) {
     input.checked = true;
+    state.pinnedSelection.sourceChosenManually = true;
     state.pinnedSelection.selectedCandidateUrl = input.value;
 
     const list = input.closest(".ii-source-list");
