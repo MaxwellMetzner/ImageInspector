@@ -23,8 +23,8 @@ A Manifest V3 Chrome extension for inspecting images in-page. Click the extensio
   - Tries at most six extra URLs per selection, caches image measurements, and times out each load after 10 seconds. Only successfully loaded images with a larger pixel area are added; the original stays available.
   - Preserves unrelated query parameters and skips URL rewrites for common signed/authenticated URLs. Failed probes are reported in the detail panel; hovering and scanning alone do not trigger speculative loads.
 - Ranks measured sources by pixel area, automatically preferring larger images unless you manually choose a source.
-- Converts selected sources to WebP, PNG, and JPG through an MV3 offscreen document.
-- Preserves original GIF downloads. Browser-native canvas does not encode animated GIF output, so GIF conversion is guarded.
+- Defaults to saving the original file without recompression, preserving source formats such as GIF, SVG, AVIF, BMP, ICO, JPEG, PNG, and WebP.
+- Converts selected sources to WebP, PNG, JPG, BMP, and ICO through an MV3 offscreen document, and offers AVIF when the current browser can encode it.
 - Adds context menu actions for toggling the inspector and downloading right-clicked images.
 
 ## Load locally

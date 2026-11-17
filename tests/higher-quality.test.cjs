@@ -123,6 +123,7 @@ test("automatic selection follows larger sources but respects manual choice", as
   const item = selection(url);
   api.ensureDetailSelection(item, api.getSortedCandidates(item));
   assert.equal(item.selectedCandidateUrl, url);
+  assert.equal(item.selectedFormat, "original");
   await api.discoverHigherQuality(item);
   api.ensureDetailSelection(item, api.getSortedCandidates(item));
   assert.equal(item.selectedCandidateUrl, "https://example.com/image");

@@ -9,11 +9,13 @@
   const MAX_SCAN_ITEMS = 80;
   const MAX_BACKGROUND_SCAN_NODES = 2500;
   const MAX_HIGHER_QUALITY_PROBES = 6;
-  const DIRECT_IMAGE_RE = /\.(avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i;
+  const DEFAULT_CONVERSION_FORMATS = ["webp", "png", "jpg", "bmp", "ico"];
+  const DIRECT_IMAGE_RE = /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)(?:[?#].*)?$/i;
   const MIME_BY_EXT = new Map([
     ["avif", "image/avif"],
     ["bmp", "image/bmp"],
     ["gif", "image/gif"],
+    ["ico", "image/x-icon"],
     ["jpg", "image/jpeg"],
     ["jpeg", "image/jpeg"],
     ["png", "image/png"],
@@ -28,7 +30,8 @@
     pointer: { x: 0, y: 0 },
     raf: 0,
     listenersAttached: false,
-    scanResults: []
+    scanResults: [],
+    conversionFormats: [...DEFAULT_CONVERSION_FORMATS]
   };
 
   const probeCache = new Map();
@@ -297,7 +300,7 @@
         align-items: center;
         justify-content: space-between;
         gap: 10px;
-        padding: 10px;
+        padding: 8px 10px;
         border-bottom: 1px solid rgba(148, 163, 184, 0.18);
       }
 
@@ -311,13 +314,24 @@
 
       .ii-panel-body {
         overflow: auto;
-        padding: 10px;
+        padding: 8px;
+      }
+
+      .ii-summary {
+        display: grid;
+        grid-template-columns: minmax(112px, 0.8fr) minmax(0, 1.2fr);
+        gap: 8px;
+        align-items: stretch;
+      }
+
+      .ii-summary-copy {
+        min-width: 0;
       }
 
       .ii-preview {
         display: block;
         width: 100%;
-        max-height: 220px;
+        height: 132px;
         object-fit: contain;
         background:
           linear-gradient(45deg, rgba(148, 163, 184, 0.14) 25%, transparent 25%),
@@ -331,14 +345,14 @@
       }
 
       .ii-section {
-        margin-top: 10px;
+        margin-top: 8px;
       }
 
       .ii-section-title {
         color: #cbd5e1;
         font-size: 11px;
         font-weight: 780;
-        margin-bottom: 7px;
+        margin-bottom: 5px;
         text-transform: uppercase;
       }
 
@@ -355,7 +369,7 @@
       .ii-source-list,
       .ii-candidates {
         display: grid;
-        gap: 6px;
+        gap: 4px;
       }
 
       .ii-source-option {
@@ -363,7 +377,7 @@
         grid-template-columns: auto minmax(0, 1fr);
         gap: 8px;
         align-items: start;
-        padding: 7px;
+        padding: 5px 6px;
         border: 1px solid rgba(148, 163, 184, 0.16);
         border-radius: 7px;
         background: rgba(2, 6, 23, 0.24);
@@ -388,49 +402,34 @@
         min-width: 0;
       }
 
-      .ii-save-options {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+      .ii-save-row {
+        display: flex;
+        align-items: center;
         gap: 6px;
       }
 
-      .ii-save-option {
-        position: relative;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+      .ii-format-select {
+        min-width: 0;
+        flex: 1 1 auto;
         min-height: 30px;
-        padding: 7px 8px;
         border: 1px solid rgba(229, 231, 235, 0.16);
         border-radius: 7px;
         background: rgba(17, 24, 39, 0.92);
         color: #f8fafc;
-        cursor: pointer;
-        font: 700 12px/1 ui-sans-serif, system-ui, sans-serif;
-      }
-
-      .ii-save-option:hover,
-      .ii-save-option.ii-selected {
-        border-color: rgba(110, 231, 183, 0.72);
-        background: rgba(6, 78, 59, 0.94);
-      }
-
-      .ii-save-option input {
-        position: absolute;
-        inset: 0;
-        opacity: 0;
+        padding: 6px 8px;
+        font: 650 12px/1 ui-sans-serif, system-ui, sans-serif;
         cursor: pointer;
       }
 
-      .ii-save-actions {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 6px;
-        margin-top: 8px;
+      .ii-save-row button {
+        flex: 0 0 auto;
+        border-color: rgba(110, 231, 183, 0.56);
+        background: rgba(5, 150, 105, 0.9);
       }
 
-      .ii-save-actions button {
-        min-width: 0;
+      .ii-save-row button:hover {
+        border-color: rgba(167, 243, 208, 0.82);
+        background: rgba(4, 120, 87, 0.98);
       }
 
       .ii-candidate {
@@ -460,6 +459,27 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+
+      .ii-section > .ii-candidate-subtitle {
+        margin: 0 0 5px;
+      }
+
+      .ii-summary .ii-badge-row {
+        margin: 0 0 6px;
+      }
+
+      .ii-summary .ii-meta {
+        gap: 4px;
+      }
+
+      .ii-summary .ii-metric {
+        padding: 5px 6px;
+      }
+
+      .ii-summary .ii-value {
+        margin-top: 3px;
+        font-size: 11px;
       }
 
       .ii-list {
@@ -529,6 +549,14 @@
 
         .ii-hover {
           width: min(292px, calc(100vw - 20px));
+        }
+
+        .ii-summary {
+          grid-template-columns: 112px minmax(0, 1fr);
+        }
+
+        .ii-preview {
+          height: 124px;
         }
       }
     </style>
@@ -603,6 +631,7 @@
       attachListeners();
       parts.toolbar.hidden = false;
       showToast("Image Inspector enabled. Hover an image, then click to grab it.");
+      loadConversionFormats();
       scheduleHoverUpdate();
     } else {
       detachListeners();
@@ -736,16 +765,11 @@
       await discoverHigherQuality(selection);
       ensureDetailSelection(selection, getSortedCandidates(selection));
       const candidate = getSelectedCandidate(selection);
-      convertSelection(selection, format, candidate.url);
-      return;
-    }
-
-    if (action === "download-selected-url" && state.pinnedSelection) {
-      const selection = state.pinnedSelection;
-      await discoverHigherQuality(selection);
-      ensureDetailSelection(selection, getSortedCandidates(selection));
-      const candidate = getSelectedCandidate(selection);
-      downloadUrl(candidate.url, selection);
+      if (format === "original") {
+        downloadUrl(candidate.url, selection);
+      } else {
+        convertSelection(selection, format, candidate.url);
+      }
       return;
     }
 
@@ -781,7 +805,7 @@
       return;
     }
 
-    const formatInput = event.target.closest('input[data-part="format-choice"]');
+    const formatInput = event.target.closest('[data-part="format-choice"]');
     if (formatInput && state.pinnedSelection) {
       updateSelectedFormat(formatInput);
       return;
@@ -1113,16 +1137,14 @@
     preview.src = selection.url;
     preview.alt = selection.alt || "";
     preview.referrerPolicy = "no-referrer";
-    parts.panelBody.append(preview);
-
-    const badgeRow = el("div", "ii-badge-row ii-section");
+    const summary = el("div", "ii-summary");
+    const summaryCopy = el("div", "ii-summary-copy");
+    const badgeRow = el("div", "ii-badge-row");
     badgeRow.append(
       resolutionBadge(selection),
       badge(typeLabel(selection.mime || inferMimeFromUrl(selection.url))),
       badge(sizeLabel(selection.fileSize))
     );
-    parts.panelBody.append(badgeRow);
-
     const meta = el("div", "ii-meta");
     meta.append(
       metric("Natural", dimensionLabel(selection.naturalWidth, selection.naturalHeight)),
@@ -1130,7 +1152,9 @@
       metric("Candidates", String(selection.candidates.length)),
       metric("Host", hostLabel(selection.url))
     );
-    parts.panelBody.append(meta);
+    summaryCopy.append(badgeRow, meta);
+    summary.append(preview, summaryCopy);
+    parts.panelBody.append(summary);
 
     const candidates = getSortedCandidates(selection);
     ensureDetailSelection(selection, candidates);
@@ -1138,7 +1162,9 @@
 
     if (candidates.length) {
       const candidateSection = section("Sources");
-      candidateSection.append(el("div", "ii-candidate-subtitle", selection.discoveryStatus));
+      if (selection.discoveryStatus) {
+        candidateSection.append(el("div", "ii-candidate-subtitle", selection.discoveryStatus));
+      }
       const list = el("div", "ii-source-list");
       for (const candidate of candidates) {
         const item = el("label", "ii-source-option");
@@ -1147,7 +1173,8 @@
         }
 
         const input = document.createElement("input");
-        input.type = "checkbox";
+        input.type = "radio";
+        input.name = "ii-source-choice";
         input.dataset.part = "source-choice";
         input.value = candidate.url;
         input.checked = candidate.url === selection.selectedCandidateUrl;
@@ -1165,30 +1192,18 @@
       parts.panelBody.append(candidateSection);
     }
 
-    const saveSection = section("Save as:");
-    const formats = el("div", "ii-save-options");
-    for (const format of ["webp", "png", "jpg", "gif"]) {
-      const option = el("label", "ii-save-option", format.toUpperCase());
-      if (format === selection.selectedFormat) {
-        option.classList.add("ii-selected");
-      }
-
-      const input = document.createElement("input");
-      input.type = "radio";
-      input.name = "ii-save-format";
-      input.value = format;
-      input.dataset.part = "format-choice";
-      input.checked = format === selection.selectedFormat;
-      option.prepend(input);
-      formats.append(option);
+    const saveSection = section("Save");
+    const saveRow = el("div", "ii-save-row");
+    const formats = document.createElement("select");
+    formats.className = "ii-format-select";
+    formats.dataset.part = "format-choice";
+    formats.setAttribute("aria-label", "Save format");
+    formats.append(option("original", originalFormatLabel(selection), selection.selectedFormat === "original"));
+    for (const format of state.conversionFormats) {
+      formats.append(option(format, `Convert to ${formatLabel(format)}`, selection.selectedFormat === format));
     }
-
-    const saveActions = el("div", "ii-save-actions");
-    saveActions.append(
-      actionButton("Download", "download-selected-format"),
-      actionButton("Save as URL", "download-selected-url")
-    );
-    saveSection.append(formats, saveActions);
+    saveRow.append(formats, actionButton(saveActionLabel(selection.selectedFormat), "download-selected-format"));
+    saveSection.append(saveRow);
     parts.panelBody.append(saveSection);
 
     parts.panel.hidden = false;
@@ -1228,7 +1243,7 @@
       const actions = el("div", "ii-row-actions");
       const details = actionButton("Details", "details-scan");
       details.dataset.id = item.id;
-      actions.append(details, saveControl("save-scan-choice", item.id));
+      actions.append(details, saveControl("save-scan-choice", item.id, item));
       row.append(img, text, actions);
       list.append(row);
     }
@@ -1405,7 +1420,7 @@
   }
 
   async function saveSelectionWithChoice(selection, choice) {
-    if (choice === "source") {
+    if (choice === "source" || choice === "original") {
       await downloadSelection(selection);
       return;
     }
@@ -1742,7 +1757,7 @@
     }
 
     if (!selection.selectedFormat) {
-      selection.selectedFormat = "png";
+      selection.selectedFormat = "original";
     }
   }
 
@@ -1764,23 +1779,16 @@
       }
       option.classList.toggle("ii-selected", selected);
     }
+    refreshDetailSaveControls();
   }
 
   function updateSelectedFormat(input) {
-    if (!input.checked) {
+    if (input.type === "radio" && !input.checked) {
       return;
     }
 
     state.pinnedSelection.selectedFormat = input.value;
-    const options = input.closest(".ii-save-options");
-    if (!options) {
-      return;
-    }
-
-    for (const option of options.querySelectorAll(".ii-save-option")) {
-      const optionInput = option.querySelector('input[data-part="format-choice"]');
-      option.classList.toggle("ii-selected", optionInput === input);
-    }
+    refreshDetailSaveControls();
   }
 
   function candidateScore(candidate) {
@@ -1895,7 +1903,7 @@
     return button;
   }
 
-  function saveControl(action, id = "") {
+  function saveControl(action, id = "", selection = null) {
     const wrapper = el("div", "ii-save-menu");
     const button = document.createElement("button");
     button.type = "button";
@@ -1910,11 +1918,10 @@
     const select = document.createElement("select");
     select.dataset.part = "save-choice";
     select.setAttribute("aria-label", "Save format");
-    select.append(
-      option("png", "PNG", true),
-      option("jpg", "JPG"),
-      option("source", "Source")
-    );
+    select.append(option("original", originalFormatLabel(selection), true));
+    for (const format of state.conversionFormats) {
+      select.append(option(format, formatLabel(format)));
+    }
 
     wrapper.append(button, select);
     return wrapper;
@@ -1923,13 +1930,13 @@
   function selectedSaveFormat(button) {
     const wrapper = button.closest(".ii-save-menu");
     const select = wrapper ? wrapper.querySelector('select[data-part="save-choice"]') : null;
-    return select ? select.value : "png";
+    return select ? select.value : "original";
   }
 
   function selectedDetailFormat(button) {
     const section = button.closest(".ii-section");
-    const input = section ? section.querySelector('input[data-part="format-choice"]:checked') : null;
-    return input ? input.value : (state.pinnedSelection && state.pinnedSelection.selectedFormat) || "png";
+    const input = section ? section.querySelector('[data-part="format-choice"]') : null;
+    return input ? input.value : (state.pinnedSelection && state.pinnedSelection.selectedFormat) || "original";
   }
 
   function updateSaveControlLabel(wrapper) {
@@ -1940,6 +1947,57 @@
     const label = wrapper.querySelector('[data-part="save-label"]');
     if (label) {
       label.textContent = "SAVE";
+    }
+  }
+
+  function refreshDetailSaveControls() {
+    if (!state.pinnedSelection) {
+      return;
+    }
+
+    const format = parts.panelBody.querySelector('[data-part="format-choice"]');
+    const original = format && format.querySelector('option[value="original"]');
+    if (original) {
+      original.textContent = originalFormatLabel(state.pinnedSelection);
+    }
+
+    const button = parts.panelBody.querySelector('button[data-action="download-selected-format"]');
+    if (button) {
+      button.textContent = saveActionLabel(state.pinnedSelection.selectedFormat);
+    }
+  }
+
+  function originalFormatLabel(selection) {
+    if (!selection) {
+      return "Original";
+    }
+    const candidate = getSelectedCandidate(selection);
+    const mime = inferMimeFromUrl(candidate.url) || selection.mime || inferMimeFromUrl(selection.url);
+    const type = typeLabel(mime);
+    return type === "Unknown" ? "Original" : `Original (${type})`;
+  }
+
+  function formatLabel(format) {
+    return format === "jpg" ? "JPG" : String(format || "").toUpperCase();
+  }
+
+  function saveActionLabel(format) {
+    return format === "original" ? "Save original" : "Convert & save";
+  }
+
+  async function loadConversionFormats() {
+    try {
+      const response = await sendMessage({ type: "IMAGE_INSPECTOR_GET_CONVERSION_FORMATS" });
+      const supported = Array.isArray(response.formats) ? response.formats : [];
+      state.conversionFormats = supported.filter((format) => ["webp", "png", "jpg", "bmp", "ico", "avif"].includes(format));
+      if (!state.conversionFormats.length) {
+        state.conversionFormats = [...DEFAULT_CONVERSION_FORMATS];
+      }
+      if (state.pinnedSelection && !parts.panel.hidden) {
+        renderSelectionPanel(state.pinnedSelection);
+      }
+    } catch (_error) {
+      state.conversionFormats = [...DEFAULT_CONVERSION_FORMATS];
     }
   }
 

@@ -1,7 +1,7 @@
 const CONTENT_SCRIPT = "src/content/inspector.js";
 const OFFSCREEN_DOCUMENT = "src/offscreen/offscreen.html";
 const DOWNLOAD_DIR = "ImageInspector";
-const SUPPORTED_CONVERSIONS = new Set(["webp", "png", "jpg", "gif"]);
+const SUPPORTED_CONVERSIONS = new Set(["webp", "png", "jpg", "bmp", "ico", "avif"]);
 
 const activeTabs = new Map();
 
@@ -99,6 +99,8 @@ async function handleMessage(message) {
       return handleDownload(message);
     case "IMAGE_INSPECTOR_CONVERT_AND_DOWNLOAD":
       return handleConvertAndDownload(message);
+    case "IMAGE_INSPECTOR_GET_CONVERSION_FORMATS":
+      return getConversionFormats();
     default:
       throw new Error(`Unknown Image Inspector message: ${message.type}`);
   }
@@ -256,20 +258,6 @@ async function handleConvertAndDownload(message) {
   const format = normalizeFormat(message.format);
   assertFetchableUrl(url);
 
-  const sourceInfo = await probeImage(url).catch(() => emptyProbe(url));
-
-  if (format === "gif") {
-    const sourceExt = extensionFromUrl(url);
-    if (sourceInfo.contentType === "image/gif" || sourceExt === "gif") {
-      return handleDownload({
-        url,
-        filenameBase: message.filenameBase
-      });
-    }
-
-    throw new Error("GIF output is not available for non-GIF sources in this browser-native build.");
-  }
-
   await ensureOffscreenDocument();
   const converted = await sendOffscreenMessage({
     type: "IMAGE_INSPECTOR_CONVERT",
@@ -302,6 +290,18 @@ async function handleConvertAndDownload(message) {
     height: converted.height,
     mime: converted.mime
   };
+}
+
+async function getConversionFormats() {
+  await ensureOffscreenDocument();
+  const result = await sendOffscreenMessage({
+    type: "IMAGE_INSPECTOR_GET_FORMATS",
+    target: "IMAGE_INSPECTOR_OFFSCREEN"
+  });
+  if (!result || result.ok === false || !Array.isArray(result.formats)) {
+    return { formats: ["webp", "png", "jpg", "bmp", "ico"] };
+  }
+  return { formats: result.formats };
 }
 
 async function ensureOffscreenDocument() {
@@ -501,6 +501,9 @@ function extensionFromMime(mime) {
       return "bmp";
     case "image/gif":
       return "gif";
+    case "image/x-icon":
+    case "image/vnd.microsoft.icon":
+      return "ico";
     case "image/jpeg":
       return "jpg";
     case "image/png":
@@ -526,6 +529,8 @@ function extensionMime(extension) {
       return "image/bmp";
     case "gif":
       return "image/gif";
+    case "ico":
+      return "image/x-icon";
     case "jpg":
     case "jpeg":
       return "image/jpeg";
